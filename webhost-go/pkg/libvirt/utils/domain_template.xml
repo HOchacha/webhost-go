@@ -1,0 +1,21 @@
+<domain type='kvm'>
+    <name>{{.Name}}</name>
+    <memory unit='MiB'>{{.Memory}}</memory>
+    <vcpu>{{.VCPU}}</vcpu>
+    <os>
+        <type arch='x86_64'>hvm</type>
+        <boot dev='hd'/>
+    </os>
+    <devices>
+        <disk type='file' device='disk'>
+            <driver name='qemu' type='qcow2'/>
+            <source file='{{.DiskPath}}'/>
+            <target dev='vda' bus='virtio'/>
+        </disk>
+        <interface type='network'>
+            <source network='default'/>
+            <model type='virtio'/>
+        </interface>
+        <graphics type='vnc' port='-1'/>
+    </devices>
+</domain>
