@@ -15,10 +15,11 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 }
 
 func (r *UserRepository) FindByID(id int64) (*user_service.User, error) {
-	row := r.db.QueryRow("SELECT id, email, password, name FROM users WHERE id = ?", id)
+	row := r.db.QueryRow("SELECT id, email, password, name, role FROM users WHERE id = ?", id)
 
 	var u user_service.User
-	if err := row.Scan(&u.ID, &u.Email, &u.Password, &u.Name); err != nil {
+
+	if err := row.Scan(&u.ID, &u.Email, &u.Password, &u.Name, &u.Role); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, errors.New("user not found")
 		}
@@ -28,20 +29,21 @@ func (r *UserRepository) FindByID(id int64) (*user_service.User, error) {
 }
 
 func (r *UserRepository) FindByEmail(email string) (*user_service.User, error) {
-	row := r.db.QueryRow("SELECT id, email, password, name FROM users WHERE email = ?", email)
+	row := r.db.QueryRow("SELECT id, email, password, name, role FROM users WHERE email = ?", email)
 
 	var u user_service.User
-	if err := row.Scan(&u.ID, &u.Email, &u.Password, &u.Name); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.Password, &u.Name, &u.Role); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, errors.New("user not found")
 		}
 		return nil, err
 	}
+
 	return &u, nil
 }
 
 func (r *UserRepository) FindAll() ([]*user_service.User, error) {
-	rows, err := r.db.Query("SELECT id, email, password, name FROM users")
+	rows, err := r.db.Query("SELECT id, email, password, name, role FROM users")
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +52,7 @@ func (r *UserRepository) FindAll() ([]*user_service.User, error) {
 	var users []*user_service.User
 	for rows.Next() {
 		var u user_service.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Password, &u.Name); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Password, &u.Name, &u.Role); err != nil {
 			return nil, err
 		}
 		users = append(users, &u)
@@ -60,16 +62,16 @@ func (r *UserRepository) FindAll() ([]*user_service.User, error) {
 
 func (r *UserRepository) Create(u *user_service.User) error {
 	_, err := r.db.Exec(
-		"INSERT INTO users (email, password, name) VALUES (?, ?, ?)",
-		u.Email, u.Password, u.Name,
+		"INSERT INTO users (email, password, name, role) VALUES (?, ?, ?, ?)",
+		u.Email, u.Password, u.Name, u.Role,
 	)
 	return err
 }
 
 func (r *UserRepository) Update(u *user_service.User) error {
 	_, err := r.db.Exec(
-		"UPDATE users SET email = ?, password = ?, name = ? WHERE id = ?",
-		u.Email, u.Password, u.Name, u.ID,
+		"UPDATE users SET email = ?, password = ?, name = ?, role = ? WHERE id = ?",
+		u.Email, u.Password, u.Name, u.Role, u.ID,
 	)
 	return err
 }

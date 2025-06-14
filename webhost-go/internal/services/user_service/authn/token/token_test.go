@@ -10,7 +10,7 @@ import (
 func TestJWTManager_ValidToken(t *testing.T) {
 	manager := token.NewJWTManager("secret-key", time.Minute)
 	email := "user@example.com"
-	role := "admin"
+	role := token.RoleAdmin
 
 	tok, err := manager.Generate(email, role)
 	if err != nil {
@@ -32,7 +32,7 @@ func TestJWTManager_ValidToken(t *testing.T) {
 func TestJWTManager_ExpiredToken(t *testing.T) {
 	manager := token.NewJWTManager("secret-key", -time.Second) // 즉시 만료
 	email := "expired@example.com"
-	role := "user"
+	role := token.RoleUser
 
 	tok, err := manager.Generate(email, role)
 	if err != nil {
@@ -64,5 +64,52 @@ func TestJWTManager_InvalidSignature(t *testing.T) {
 	}
 	if result.ParseErr == nil {
 		t.Error("ParseErr가 nil인데 잘못된 서명임")
+	}
+}
+
+func TestJWTManager_InvalidRole(t *testing.T) {
+	manager := token.NewJWTManager("secret-key", time.Minute)
+	email := "hacker@example.com"
+	invalidRole := token.Role("superadmin") // 정의되지 않은 Role
+
+	_, err := manager.Generate(email, invalidRole)
+	if err == nil {
+		t.Errorf("유효하지 않은 Role로 토큰이 생성됨: %s", invalidRole)
+	}
+}
+
+func TestJWTManager_OnlyAdminCanAccess(t *testing.T) {
+	manager := token.NewJWTManager("secret-key", time.Minute)
+
+	tests := []struct {
+		email       string
+		role        token.Role
+		shouldAllow bool
+	}{
+		{"admin@example.com", token.RoleAdmin, true},
+		{"user@example.com", token.RoleUser, false},
+		{"guest@example.com", token.RoleReader, false},
+		{"hacker@example.com", token.Role("superadmin"), false},
+	}
+
+	for _, tc := range tests {
+		tokenStr, err := manager.Generate(tc.email, tc.role)
+		if err != nil {
+			t.Errorf("토큰 생성 실패 (%s): %v", tc.role, err)
+			continue
+		}
+
+		result := manager.Validate(tokenStr)
+		if !result.Valid {
+			t.Errorf("토큰 검증 실패 (%s): %v", tc.role, result.ParseErr)
+			continue
+		}
+
+		if result.Claims.Role == token.RoleAdmin && !tc.shouldAllow {
+			t.Errorf("admin은 아닌데 통과함: %s", result.Claims.Role)
+		}
+		if result.Claims.Role != token.RoleAdmin && tc.shouldAllow {
+			t.Errorf("admin인데 거부됨: %s", result.Claims.Role)
+		}
 	}
 }

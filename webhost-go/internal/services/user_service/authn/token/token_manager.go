@@ -1,13 +1,14 @@
 package token
 
 import (
+	"fmt"
 	"github.com/golang-jwt/jwt/v5"
 	"time"
 )
 
 type CustomClaims struct {
 	Email string `json:"email"`
-	Role  string `json:"role"`
+	Role  Role   `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -19,7 +20,7 @@ type TokenValidationResult struct {
 }
 
 type TokenManager interface {
-	Generate(email string, role string) (string, error)
+	Generate(email string, role Role) (string, error)
 	Validate(tokenStr string) *TokenValidationResult
 }
 
@@ -35,12 +36,16 @@ func NewJWTManager(secret string, duration time.Duration) *JWTManager {
 	}
 }
 
-func (j *JWTManager) Generate(email string, role string) (string, error) {
+func (j *JWTManager) Generate(email string, role Role) (string, error) {
+	if !isValidRole(role) {
+		return "", fmt.Errorf("Invalid Role: %s", role)
+	}
+
 	claims := &CustomClaims{
 		Email: email,
 		Role:  role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute * j.duration)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(j.duration)),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -56,6 +61,10 @@ func (j *JWTManager) Validate(tokenStr string) *TokenValidationResult {
 
 	if err != nil {
 		result.ParseErr = err
+	}
+
+	if token == nil {
+		return result
 	}
 
 	if claims, ok := token.Claims.(*CustomClaims); ok {
