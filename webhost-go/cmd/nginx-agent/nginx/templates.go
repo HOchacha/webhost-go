@@ -13,7 +13,7 @@ const nginxConfTemplate = `
 const streamConfTemplate = `
 # BEGIN WEBHOSTING_STREAM_Hochacha {{.Username}}
 server {
-    listen {{.RandomPort}};
+    listen {{.SSHPort}};
     proxy_pass {{.VMIP}}:22;
 }
 # END WEBHOSTING_STREAM_Hochacha {{.Username}}

@@ -4,55 +4,70 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"webhost-go/webhost-go/cmd/nginx-agent/nginx"
 )
 
-func TestNginxManager(t *testing.T) {
+func TestNginxManager_HTTPAndStreamConfig(t *testing.T) {
+	// ────────────────
+	// 1. 임시 디렉토리 구성
 	tmpDir := t.TempDir()
-
-	// 테스트 경로 세팅
-	hostingFile := filepath.Join(tmpDir, "sites-available", "web_host.conf")
+	locationDir := filepath.Join(tmpDir, "locations")
 	streamDir := filepath.Join(tmpDir, "stream.d")
 
-	// 디렉터리 생성
-	os.MkdirAll(filepath.Dir(hostingFile), 0755)
-	os.MkdirAll(streamDir, 0755)
+	_ = os.MkdirAll(locationDir, 0755)
+	_ = os.MkdirAll(streamDir, 0755)
 
-	manager := NewNginxManager(hostingFile, streamDir)
-
-	// Agent 정보
-	agent := AgentInfo{
-		Username: "testuser",
-		Hostname: "testuser",
-		VMIP:     "192.168.100.100",
+	hostingFile := filepath.Join(tmpDir, "webhost.conf")
+	err := os.WriteFile(hostingFile, []byte(`server {
+    listen 80;
+    server_name _;
+    include locations/*.conf;
+}`), 0644)
+	if err != nil {
+		t.Fatalf("failed to create base config file: %v", err)
 	}
 
-	// nginx 템플릿 정의
-	nginxConfTemplate = `
-# BEGIN WEBHOSTING_Hochacha {{.Hostname}}
-location /code/{{.Username}}/ {
-    proxy_pass http://{{.VMIP}}:8080/;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-}
-# END WEBHOSTING_Hochacha {{.Hostname}}`
-	streamConfTemplate = `
-server {
-    listen 22022;
-    proxy_pass {{.VMIP}}:22;
-}`
+	manager := nginx.NewNginxManager(hostingFile, locationDir, streamDir)
 
-	// 1. HTTP Config 추가
+	// ────────────────
+	// 2. AgentInfo 테스트 데이터
+	agent := nginx.AgentInfo{
+		Username: "testuser",
+		Hostname: "testvm.local",
+		VMIP:     "192.168.0.123",
+		SSHPort:  22022,
+	}
+
+	// ────────────────
+	// 3. AddHTTPConfig + AddStreamConfig 테스트
 	if err := manager.AddHTTPConfig(agent); err != nil {
 		t.Fatalf("AddHTTPConfig failed: %v", err)
 	}
 
-	// 2. Stream Config 추가
 	if err := manager.AddStreamConfig(agent); err != nil {
 		t.Fatalf("AddStreamConfig failed: %v", err)
 	}
 
-	// 3. 삭제
+	locPath := filepath.Join(locationDir, "testuser.conf")
+	streamPath := filepath.Join(streamDir, "sftp_testuser.conf")
+
+	if _, err := os.Stat(locPath); os.IsNotExist(err) {
+		t.Fatalf("expected HTTP config file not found: %s", locPath)
+	}
+	if _, err := os.Stat(streamPath); os.IsNotExist(err) {
+		t.Fatalf("expected stream config file not found: %s", streamPath)
+	}
+
+	// ────────────────
+	// 4. RemoveNginxConfigForUser 테스트
 	if err := manager.RemoveNginxConfigForUser(agent.Username); err != nil {
 		t.Fatalf("RemoveNginxConfigForUser failed: %v", err)
+	}
+
+	if _, err := os.Stat(locPath); !os.IsNotExist(err) {
+		t.Errorf("HTTP config file should be deleted: %s", locPath)
+	}
+	if _, err := os.Stat(streamPath); !os.IsNotExist(err) {
+		t.Errorf("stream config file should be deleted: %s", streamPath)
 	}
 }
