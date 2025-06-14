@@ -9,13 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const templateDir = "/var/lib/libvirt/images/templates"
+var TemplateDir = "/var/lib/libvirt/images/templates"
 
 type TemplateRequest struct {
 	URL string `json:"url" binding:"required"`
 }
 
-func downloadTemplateHandler(c *gin.Context) {
+func DownloadTemplateHandler(c *gin.Context) {
 	var req TemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "유효하지 않은 요청 형식"})
@@ -23,7 +23,7 @@ func downloadTemplateHandler(c *gin.Context) {
 	}
 
 	filename := filepath.Base(req.URL)
-	dstPath := filepath.Join(templateDir, filename)
+	dstPath := filepath.Join(TemplateDir, filename)
 
 	// 다운로드
 	out, err := os.Create(dstPath)
