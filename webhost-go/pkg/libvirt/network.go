@@ -59,23 +59,30 @@ func (m *LibvirtManager) GetDefaultNetworkConfig() (*LibvirtNetworkConfig, error
 }
 
 // GetUsableIPs returns all usable (assignable) IPs from the default libvirt network
-func (m *LibvirtManager) GetUsableIPs() ([]net.IP, error) {
+func (m *LibvirtManager) GetUsableIPs(used []net.IP) ([]net.IP, error) {
 	netConf, err := m.GetDefaultNetworkConfig()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("libvirt 네트워크 설정 조회 실패: %w", err)
 	}
 
 	cidr := netConf.CIDR
 	gateway := netConf.Gateway
 	broadcastIP := lastIP(cidr)
 
+	// 이미 사용 중인 IP → map으로 빠르게 검사
+	usedMap := make(map[string]bool)
+	for _, ip := range used {
+		usedMap[ip.String()] = true
+	}
+
 	var usableIPs []net.IP
 	for ip := nextIP(cidr.IP.Mask(cidr.Mask)); compareIP(ip, broadcastIP) < 0; ip = nextIP(ip) {
-		if ip.Equal(gateway) {
-			continue // gateway는 제외
+		if ip.Equal(gateway) || usedMap[ip.String()] {
+			continue
 		}
 		usableIPs = append(usableIPs, ip)
 	}
+
 	return usableIPs, nil
 }
 

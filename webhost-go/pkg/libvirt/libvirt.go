@@ -20,6 +20,14 @@ type LibvirtManager struct {
 	conn *libvirt.Libvirt
 }
 
+type DomainInfo struct {
+	State     uint8  // 현재 VM 상태 (e.g. Running, Shutoff 등)
+	MaxMem    uint64 // 할당된 최대 메모리 (KB)
+	Memory    uint64 // 현재 사용 중인 메모리 (KB)
+	NrVirtCpu uint16 // 가상 CPU 수
+	CpuTime   uint64 // 누적 CPU 사용 시간 (나노초)
+}
+
 func NewLibvirtManager() (*LibvirtManager, error) {
 	c, err := net.DialTimeout("unix", "/var/run/libvirt/libvirt-sock", 2*time.Second)
 	if err != nil {
@@ -98,6 +106,14 @@ func (m *LibvirtManager) DeleteDomain(name string, withDisks bool) error {
 		}
 	}
 
+	var xmlDesc string
+	if withDisks {
+		xmlDesc, err = m.conn.DomainGetXMLDesc(dom, 0)
+		if err != nil {
+			return fmt.Errorf("도메인 XML 가져오기 실패: %w", err)
+		}
+	}
+
 	// 정의 제거
 	if err := m.conn.DomainUndefine(dom); err != nil {
 		return fmt.Errorf("도메인 정의 삭제 실패: %w", err)
@@ -105,11 +121,6 @@ func (m *LibvirtManager) DeleteDomain(name string, withDisks bool) error {
 
 	// 디스크 경로 수집 후 삭제
 	if withDisks {
-		xmlDesc, err := m.conn.DomainGetXMLDesc(dom, 0)
-		if err != nil {
-			return fmt.Errorf("도메인 XML 가져오기 실패: %w", err)
-		}
-
 		paths := extractDiskPaths(xmlDesc)
 		for _, path := range paths {
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -119,6 +130,57 @@ func (m *LibvirtManager) DeleteDomain(name string, withDisks bool) error {
 	}
 
 	return nil
+}
+
+func (l *LibvirtManager) Resume(domainName string) error {
+	domain, err := l.conn.DomainLookupByName(domainName)
+	if err != nil {
+		return fmt.Errorf("도메인 조회 실패: %w", err)
+	}
+
+	if err := l.conn.DomainResume(domain); err != nil {
+		return fmt.Errorf("도메인 재개 실패: %w", err)
+	}
+
+	return nil
+}
+
+func (l *LibvirtManager) DomainIsActive(name string) (bool, error) {
+	domain, err := l.conn.DomainLookupByName(name)
+	if err != nil {
+		return false, err
+	}
+
+	rState, _, _, _, _, _ := l.conn.DomainGetInfo(domain)
+	if err != nil {
+		return false, err
+	}
+
+	return rState == uint8(libvirt.DomainRunning), nil
+}
+
+func (l *LibvirtManager) GetDomainInfoByName(name string) (*DomainInfo, error) {
+	// 도메인 조회
+	domain, err := l.conn.DomainLookupByName(name)
+	if err != nil {
+		return nil, fmt.Errorf("도메인 조회 실패: %w", err)
+	}
+
+	// 도메인 정보 조회
+	rState, rMaxMem, rMemory, rVCPU, rCPUTime, err := l.conn.DomainGetInfo(domain)
+	if err != nil {
+		return nil, fmt.Errorf("도메인 정보 조회 실패: %w", err)
+	}
+
+	info := &DomainInfo{
+		State:     uint8(rState),
+		MaxMem:    rMaxMem,
+		Memory:    rMemory,
+		NrVirtCpu: uint16(rVCPU),
+		CpuTime:   rCPUTime,
+	}
+
+	return info, nil
 }
 
 type domainDiskXML struct {

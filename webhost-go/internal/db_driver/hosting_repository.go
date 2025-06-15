@@ -40,7 +40,8 @@ func (r *HostingRepository) Delete(vmName string) error {
 func (r *HostingRepository) FindByVMName(vmName string) (*hosting_service.Hosting, error) {
 	row := r.db.QueryRow(`
 		SELECT id, user_id, vm_name, ip_address, ssh_port, proxy_path, disk_path, status, created_at
-		FROM hostings WHERE vm_name = ?
+		FROM hostings
+		WHERE vm_name = ? AND status != 'deleted'
 	`, vmName)
 
 	var h hosting_service.Hosting
@@ -50,7 +51,7 @@ func (r *HostingRepository) FindByVMName(vmName string) (*hosting_service.Hostin
 		&h.Status, &h.CreatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, errors.New("hosting not found")
+			return nil, sql.ErrNoRows
 		}
 		return nil, err
 	}
@@ -130,4 +131,45 @@ func (r *HostingRepository) GetAvailablePort(basePort, maxPort int) (int, error)
 	}
 
 	return 0, fmt.Errorf("사용 가능한 포트를 찾을 수 없습니다")
+}
+
+func (r *HostingRepository) FindActiveByUserID(userID int64) (*hosting_service.Hosting, error) {
+	row := r.db.QueryRow(`
+		SELECT id, user_id, vm_name, ip_address, ssh_port, proxy_path, disk_path, status, created_at
+		FROM hostings
+		WHERE user_id = ? AND status != 'deleted'
+	`, userID)
+
+	var h hosting_service.Hosting
+	if err := row.Scan(
+		&h.ID, &h.UserID, &h.VMName, &h.IPAddress,
+		&h.SSHPort, &h.ProxyPath, &h.DiskPath,
+		&h.Status, &h.CreatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, sql.ErrNoRows
+		}
+		return nil, err
+	}
+	return &h, nil
+}
+
+func (r *HostingRepository) GetUsedIPs() ([]string, error) {
+	rows, err := r.db.Query(`
+		SELECT ip_address FROM hostings WHERE status != 'deleted'
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ips []string
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			return nil, err
+		}
+		ips = append(ips, ip)
+	}
+	return ips, nil
 }

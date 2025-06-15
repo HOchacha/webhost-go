@@ -45,3 +45,57 @@ func (h *HostingHandler) CreateHosting(c *gin.Context) {
 		"proxy":    hosting.ProxyPath,
 	})
 }
+
+func (h *HostingHandler) GetVMStatus(c *gin.Context) {
+	email := c.Param("username")
+
+	active, err := h.HostingService.GetVMStatus(email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "상태 조회 실패: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"name": active.VMName, "running": active.Active})
+}
+
+func (h *HostingHandler) GetVMDetail(c *gin.Context) {
+	email := c.Param("username")
+
+	hosting, info, err := h.HostingService.GetVMDetail(email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "상세 정보 조회 실패: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"hosting": hosting,
+		"info":    info,
+	})
+}
+
+func (h *HostingHandler) StartVM(c *gin.Context) {
+	email := c.Param("username")
+	if err := h.HostingService.StartVM(email); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "VM 시작 실패: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "VM 시작 완료"})
+}
+
+func (h *HostingHandler) StopVM(c *gin.Context) {
+	email := c.Param("username")
+	if err := h.HostingService.StopVM(email); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "VM 중지 실패: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "VM 중지 완료"})
+}
+
+func (h *HostingHandler) DeleteVM(c *gin.Context) {
+	email := c.Param("username")
+	if err := h.HostingService.DeleteVM(email); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "VM 삭제 실패: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "VM 삭제 완료"})
+}
