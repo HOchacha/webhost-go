@@ -51,6 +51,37 @@ fi
 
 echo "✅ 초기화 완료!"
 
+sudo mkdir -p /etc/libvirt/templates
+
+sudo tee "/etc/libvirt/templates/domain_template.xml" > /dev/null <<EOF
+<domain type='kvm'>
+    <name>{{.Name}}</name>
+    <memory unit='MiB'>{{.MemoryMB}}</memory>
+    <vcpu>{{.VCPUs}}</vcpu>
+    <os>
+        <type arch='x86_64'>hvm</type>
+        <boot dev='hd'/>
+    </os>
+    <devices>
+        <disk type='file' device='disk'>
+            <driver name='qemu' type='qcow2'/>
+            <source file='{{.DiskPath}}'/>
+            <target dev='vda' bus='virtio'/>
+        </disk>
+        <disk type='file' device='cdrom'>
+            <driver name='qemu' type='raw'/>
+            <source file='{{.ISOPath}}'/>
+            <target dev='sda' bus='sata'/>
+            <readonly/>
+        </disk>
+        <interface type='network'>
+            <source network='default'/>
+            <model type='virtio'/>
+        </interface>
+    </devices>
+</domain>
+EOF
+
 # 현재 사용자
 CURRENT_USER=$(whoami)
 
