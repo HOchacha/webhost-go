@@ -18,17 +18,28 @@ mkdir -p "$TEMPLATES_DIR"
 echo "📄 user-data 작성..."
 cat > "$USER_DATA" <<EOF
 #cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+
 users:
   - name: ubuntu
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    groups: users, admin
-    shell: /bin/bash
+    plain_text_passwd: 'ubuntu'
     lock_passwd: false
-    passwd: "\$6\$rounds=4096\$abcdefgh\$abcdefghijklmnopqrstuvwxzy1234567890abcdefghi"  # 'ubuntu'라는 비밀번호
-ssh_pwauth: true
-disable_root: false
+    shell: /bin/bash
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
 chpasswd:
   expire: false
+ssh_pwauth: true
+
+runcmd:
+  - systemctl enable nginx
+  - systemctl start nginx
+  - ln -s /var/www/html /home/ubuntu/www
+  - chown -R ubuntu:ubuntu /var/www/html
 EOF
 
 echo "📥 Ubuntu Cloud Image 다운로드..."
