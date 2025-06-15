@@ -39,7 +39,6 @@ http {
     gzip on;
 
     include ${NGINX_PREFIX}/conf/sites-enabled/*;
-    include ${LOCATIONS_DIR}/*.conf;
 }
 
 stream {
@@ -53,10 +52,6 @@ server {
     listen 80;
     server_name _;
 
-    location / {
-        proxy_pass http://localhost:80;
-        proxy_set_header Host \$host;
-    }
 
     error_log /var/log/nginx/error.log;
     access_log /var/log/nginx/access.log;
