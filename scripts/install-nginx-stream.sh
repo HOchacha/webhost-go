@@ -41,9 +41,11 @@ Description=Custom Nginx
 After=network.target
 
 [Service]
-ExecStart=${NGINX_PREFIX}/sbin/nginx
-ExecReload=${NGINX_PREFIX}/sbin/nginx -s reload
-ExecStop=${NGINX_PREFIX}/sbin/nginx -s quit
+Type=forking
+ExecStart=/usr/local/nginx/sbin/nginx
+ExecReload=/usr/local/nginx/sbin/nginx -s reload
+ExecStop=/usr/local/nginx/sbin/nginx -s quit
+PIDFile=/usr/local/nginx/logs/nginx.pid
 Restart=always
 
 [Install]
