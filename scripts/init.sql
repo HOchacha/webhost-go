@@ -1,11 +1,11 @@
 
-CREATE DATABASE IF NOT EXISTS webhosting DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+CREATE DATABASE IF NOT EXISTS testdb DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 
-CREATE USER IF NOT EXISTS 'webuser'@'%' IDENTIFIED BY 'your_secure_password';
-GRANT ALL PRIVILEGES ON webhosting.* TO 'webuser'@'%';
+CREATE USER IF NOT EXISTS 'testuser'@'%' IDENTIFIED BY 'testpass';
+GRANT ALL PRIVILEGES ON webhosting.* TO 'testuser'@'%';
 FLUSH PRIVILEGES;
 
-USE webhosting;
+USE testdb;
 
 CREATE TABLE IF NOT EXISTS `users` (
                                        `id` bigint(20) NOT NULL AUTO_INCREMENT,
