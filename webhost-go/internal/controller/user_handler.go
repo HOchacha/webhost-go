@@ -17,7 +17,8 @@ func NewUserHandler(s user_service.Service) *UserHandler {
 // POST /register
 func (h *UserHandler) Register(c *gin.Context) {
 	var req struct {
-		Email    string `json:"email" binding:"required,email"`
+		Email string `json:"email" binding:"required,email"` // 원래는 required,email로 이메일 형식 검사를 수행하였으나
+		// 일시적으로 중단함
 		Password string `json:"password" binding:"required"`
 		Name     string `json:"name" binding:"required"`
 	}

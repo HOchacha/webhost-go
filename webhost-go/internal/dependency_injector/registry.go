@@ -10,4 +10,5 @@ type HandlerRegistry struct {
 	UserHandler    *controller.UserHandler
 	JWTManager     *token.JWTManager
 	AuthMiddleware *middleware.AuthMiddleware
+	HostingHandler *controller.HostingHandler
 }

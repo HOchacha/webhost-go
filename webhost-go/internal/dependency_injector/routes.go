@@ -17,4 +17,9 @@ func RegisterRoutes(r *gin.Engine, h *HandlerRegistry) {
 	{
 		adminProtected.GET("", h.UserHandler.ListUsers)
 	}
+
+	hostingUserProtected := r.Group("/hosting", h.AuthMiddleware.RequireUser(), h.AuthMiddleware.RequireSelfOrAdmin())
+	{
+		hostingUserProtected.POST("/:username", h.HostingHandler.CreateHosting)
+	}
 }

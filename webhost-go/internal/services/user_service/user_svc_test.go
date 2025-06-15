@@ -3,6 +3,7 @@ package user_service_test
 import (
 	"fmt"
 	"testing"
+	"time"
 	"webhost-go/webhost-go/internal/services/user_service"
 	"webhost-go/webhost-go/internal/services/user_service/authn/token"
 	"webhost-go/webhost-go/internal/services/user_service/authn/utils"
@@ -72,39 +73,50 @@ func (m *mockRepo) FindByID(id int64) (*user_service.User, error) {
 func TestUserService(t *testing.T) {
 	repo := newMockRepo()
 	locker := &utils.BcryptLocker{}
-	tokens := token.NewJWTManager("test-secret", 36000000)
+	tokens := token.NewJWTManager("test-secret", 30*time.Minute)
 	svc := user_service.NewService(repo, locker, tokens)
 
+	email := "test@example.com"
+	password := "password123"
+	name := "Test User"
+
 	// 1. 회원가입
-	err := svc.Signup("test@example.com", "password123", "Test User")
+	err := svc.Signup(email, password, name)
 	assert.NoError(t, err)
 
 	// 2. 중복 회원가입
-	err = svc.Signup("test@example.com", "password123", "Test User")
+	err = svc.Signup(email, password, name)
 	assert.Error(t, err)
 
 	// 3. 로그인
-	tokenStr, err := svc.Login("test@example.com", "password123")
+	tokenStr, err := svc.Login(email, password)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, tokenStr)
 
 	// 4. 로그인 실패 (잘못된 비밀번호)
-	_, err = svc.Login("test@example.com", "wrongpass")
+	_, err = svc.Login(email, "wrongpass")
 	assert.Error(t, err)
 
 	// 5. 토큰 검증
-	user, err := svc.VerifyToken(tokenStr)
-	assert.NoError(t, err)
-	assert.Equal(t, "test@example.com", user.Email)
+	validation := tokens.Validate(tokenStr)
+	assert.True(t, validation.Valid)
+	assert.Equal(t, email, validation.Claims.Email)
 
 	// 6. 사용자 정보 업데이트
-	err = svc.UpdateUser("test@example.com", "New Name", "newpass123")
+	newName := "Updated Name"
+	newPassword := "newpass123"
+	err = svc.UpdateUser(email, newName, newPassword)
 	assert.NoError(t, err)
 
 	// 7. 업데이트 후 로그인 확인
-	tokenStr2, err := svc.Login("test@example.com", "newpass123")
-	fmt.Println(tokenStr2)
+	tokenStr2, err := svc.Login(email, newPassword)
 	assert.NoError(t, err)
+	assert.NotEmpty(t, tokenStr2)
+
+	// 7-1. 이름 변경 확인
+	updatedUser, err := repo.FindByEmail(email)
+	assert.NoError(t, err)
+	assert.Equal(t, newName, updatedUser.Name)
 
 	// 8. 사용자 목록
 	users, err := svc.ListUsers()
@@ -112,10 +124,14 @@ func TestUserService(t *testing.T) {
 	assert.Len(t, users, 1)
 
 	// 9. 사용자 삭제
-	err = svc.DeleteUser(user.ID)
+	err = svc.DeleteUserByEmail(email)
 	assert.NoError(t, err)
 
+	// 9-1. 삭제 후 존재 확인
+	_, err = repo.FindByEmail(email)
+	assert.Error(t, err)
+
 	// 10. 삭제 후 로그인 실패
-	_, err = svc.Login("test@example.com", "newpass123")
+	_, err = svc.Login(email, newPassword)
 	assert.Error(t, err)
 }

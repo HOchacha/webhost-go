@@ -1,7 +1,7 @@
 <domain type='kvm'>
     <name>{{.Name}}</name>
-    <memory unit='MiB'>{{.Memory}}</memory>
-    <vcpu>{{.VCPU}}</vcpu>
+    <memory unit='MiB'>{{.MemoryMB}}</memory>
+    <vcpu>{{.VCPUs}}</vcpu>
     <os>
         <type arch='x86_64'>hvm</type>
         <boot dev='hd'/>
@@ -12,10 +12,15 @@
             <source file='{{.DiskPath}}'/>
             <target dev='vda' bus='virtio'/>
         </disk>
+        <disk type='file' device='cdrom'>
+            <driver name='qemu' type='raw'/>
+            <source file='{{.ISOPath}}'/>
+            <target dev='sda' bus='sata'/>
+            <readonly/>
+        </disk>
         <interface type='network'>
             <source network='default'/>
             <model type='virtio'/>
         </interface>
-        <graphics type='vnc' port='-1'/>
     </devices>
 </domain>

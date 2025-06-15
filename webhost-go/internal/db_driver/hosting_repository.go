@@ -3,6 +3,7 @@ package db_driver
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"webhost-go/webhost-go/internal/services/hosting_service"
 )
 
@@ -16,35 +17,37 @@ func NewHostingRepository(db *sql.DB) *HostingRepository {
 
 func (r *HostingRepository) Create(h *hosting_service.Hosting) error {
 	_, err := r.db.Exec(`
-		INSERT INTO hostings 
-		(user_id, name, plan, status, ip_address, ssh_port, disk_path, node_name, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, h.UserID, h.Name, h.Plan, h.Status, h.IPAddress, h.SSHPort, h.DiskPath, h.NodeName, h.CreatedAt)
+		INSERT INTO hostings (user_id, vm_name, ip_address, ssh_port, proxy_path, disk_path, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, h.UserID, h.VMName, h.IPAddress, h.SSHPort, h.ProxyPath, h.DiskPath, h.Status)
 	return err
 }
 
-func (r *HostingRepository) Update(h *hosting_service.Hosting) error {
+func (r *HostingRepository) UpdateStatus(vmName string, status string) error {
 	_, err := r.db.Exec(`
-		UPDATE hostings SET
-			user_id = ?, name = ?, plan = ?, status = ?, ip_address = ?, 
-			ssh_port = ?, disk_path = ?, node_name = ?
-		WHERE id = ?
-	`, h.UserID, h.Name, h.Plan, h.Status, h.IPAddress, h.SSHPort, h.DiskPath, h.NodeName, h.ID)
+		UPDATE hostings SET status = ? WHERE vm_name = ?
+	`, status, vmName)
 	return err
 }
 
-func (r *HostingRepository) Delete(id int64) error {
-	_, err := r.db.Exec("DELETE FROM hostings WHERE id = ?", id)
+func (r *HostingRepository) Delete(vmName string) error {
+	_, err := r.db.Exec(`
+		DELETE FROM hostings WHERE vm_name = ?
+	`, vmName)
 	return err
 }
 
-func (r *HostingRepository) FindByID(id int64) (*hosting_service.Hosting, error) {
-	row := r.db.QueryRow("SELECT id, user_id, name, plan, status, ip_address, ssh_port, disk_path, node_name, created_at FROM hostings WHERE id = ?", id)
+func (r *HostingRepository) FindByVMName(vmName string) (*hosting_service.Hosting, error) {
+	row := r.db.QueryRow(`
+		SELECT id, user_id, vm_name, ip_address, ssh_port, proxy_path, disk_path, status, created_at
+		FROM hostings WHERE vm_name = ?
+	`, vmName)
 
 	var h hosting_service.Hosting
 	if err := row.Scan(
-		&h.ID, &h.UserID, &h.Name, &h.Plan, &h.Status,
-		&h.IPAddress, &h.SSHPort, &h.DiskPath, &h.NodeName, &h.CreatedAt,
+		&h.ID, &h.UserID, &h.VMName, &h.IPAddress,
+		&h.SSHPort, &h.ProxyPath, &h.DiskPath,
+		&h.Status, &h.CreatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, errors.New("hosting not found")
@@ -54,44 +57,77 @@ func (r *HostingRepository) FindByID(id int64) (*hosting_service.Hosting, error)
 	return &h, nil
 }
 
-func (r *HostingRepository) FindByUserID(userID int64) ([]*hosting_service.Hosting, error) {
-	rows, err := r.db.Query("SELECT id, user_id, name, plan, status, ip_address, ssh_port, disk_path, node_name, created_at FROM hostings WHERE user_id = ?", userID)
+func (r *HostingRepository) FindAllByUserID(userID int64) ([]*hosting_service.Hosting, error) {
+	rows, err := r.db.Query(`
+		SELECT id, user_id, vm_name, ip_address, ssh_port, proxy_path, disk_path, status, created_at
+		FROM hostings WHERE user_id = ?
+	`, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var result []*hosting_service.Hosting
+	var list []*hosting_service.Hosting
 	for rows.Next() {
 		var h hosting_service.Hosting
 		if err := rows.Scan(
-			&h.ID, &h.UserID, &h.Name, &h.Plan, &h.Status,
-			&h.IPAddress, &h.SSHPort, &h.DiskPath, &h.NodeName, &h.CreatedAt,
+			&h.ID, &h.UserID, &h.VMName, &h.IPAddress,
+			&h.SSHPort, &h.ProxyPath, &h.DiskPath,
+			&h.Status, &h.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
-		result = append(result, &h)
+		list = append(list, &h)
 	}
-	return result, nil
+	return list, nil
 }
 
 func (r *HostingRepository) FindAll() ([]*hosting_service.Hosting, error) {
-	rows, err := r.db.Query("SELECT id, user_id, name, plan, status, ip_address, ssh_port, disk_path, node_name, created_at FROM hostings")
+	rows, err := r.db.Query(`
+		SELECT id, user_id, vm_name, ip_address, ssh_port, proxy_path, disk_path, status, created_at
+		FROM hostings
+	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var result []*hosting_service.Hosting
+	var hostings []*hosting_service.Hosting
 	for rows.Next() {
 		var h hosting_service.Hosting
 		if err := rows.Scan(
-			&h.ID, &h.UserID, &h.Name, &h.Plan, &h.Status,
-			&h.IPAddress, &h.SSHPort, &h.DiskPath, &h.NodeName, &h.CreatedAt,
+			&h.ID, &h.UserID, &h.VMName, &h.IPAddress,
+			&h.SSHPort, &h.ProxyPath, &h.DiskPath,
+			&h.Status, &h.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
-		result = append(result, &h)
+		hostings = append(hostings, &h)
 	}
-	return result, nil
+	return hostings, nil
+}
+
+func (r *HostingRepository) GetAvailablePort(basePort, maxPort int) (int, error) {
+	rows, err := r.db.Query("SELECT ssh_port FROM hostings WHERE status != 'deleted'")
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	used := make(map[int]bool)
+	for rows.Next() {
+		var port int
+		if err := rows.Scan(&port); err != nil {
+			return 0, err
+		}
+		used[port] = true
+	}
+
+	for p := basePort; p <= maxPort; p++ {
+		if !used[p] {
+			return p, nil
+		}
+	}
+
+	return 0, fmt.Errorf("사용 가능한 포트를 찾을 수 없습니다")
 }

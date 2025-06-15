@@ -7,17 +7,17 @@ import (
 	"webhost-go/webhost-go/internal/services/user_service/authn/utils"
 )
 
-type service struct {
+type UserService struct {
 	repo   Repository
 	locker utils.PasswordLocker
 	tokens token.TokenManager
 }
 
 func NewService(r Repository, l utils.PasswordLocker, t token.TokenManager) Service {
-	return &service{repo: r, locker: l, tokens: t}
+	return &UserService{repo: r, locker: l, tokens: t}
 }
 
-func (s *service) Signup(email, password, name string) error {
+func (s *UserService) Signup(email, password, name string) error {
 
 	if _, err := s.repo.FindByEmail(email); err == nil {
 		return errors.New("user already exists")
@@ -38,7 +38,7 @@ func (s *service) Signup(email, password, name string) error {
 	return s.repo.Create(user)
 }
 
-func (s *service) Login(email, password string) (string, error) {
+func (s *UserService) Login(email, password string) (string, error) {
 	user, err := s.repo.FindByEmail(email)
 	if err != nil {
 		return "", fmt.Errorf("사용자 조회 실패: %w", err)
@@ -52,7 +52,7 @@ func (s *service) Login(email, password string) (string, error) {
 }
 
 // ID는 말 그대로 숫자임, 아무래도 email 기반으로 찾게끔 해야 할 것 같아
-func (s *service) UpdateUser(email, name, newPassword string) error {
+func (s *UserService) UpdateUser(email, name, newPassword string) error {
 	user, err := s.repo.FindByEmail(email)
 	if err != nil {
 		return err
@@ -72,15 +72,15 @@ func (s *service) UpdateUser(email, name, newPassword string) error {
 	return s.repo.Update(user)
 }
 
-func (s *service) ListUsers() ([]*User, error) {
+func (s *UserService) ListUsers() ([]*User, error) {
 	return s.repo.FindAll()
 }
 
-func (s *service) DeleteUser(id int64) error {
+func (s *UserService) DeleteUser(id int64) error {
 	return s.repo.Delete(id)
 }
 
-func (s *service) DeleteUserByEmail(email string) error {
+func (s *UserService) DeleteUserByEmail(email string) error {
 	user, err := s.repo.FindByEmail(email)
 	if err != nil {
 		return err
@@ -88,6 +88,6 @@ func (s *service) DeleteUserByEmail(email string) error {
 	return s.repo.Delete(user.ID)
 }
 
-func (s *service) GetUserByEmail(email string) (*User, error) {
+func (s *UserService) GetUserByEmail(email string) (*User, error) {
 	return s.repo.FindByEmail(email)
 }

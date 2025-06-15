@@ -2,8 +2,8 @@ package nginx
 
 const nginxConfTemplate = `
 # BEGIN WEBHOSTING_Hochacha {{.Username}}
-	location /code/{{.Username}}/ {
-    	proxy_pass http://{{.VMIP}}:8080/;
+	location /{{.Username}}/ {
+    	proxy_pass http://{{.VMIP}}:80/;
     	proxy_set_header Host $host;
     	proxy_set_header X-Real-IP $remote_addr;
 	}
