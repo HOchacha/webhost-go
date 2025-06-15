@@ -1,3 +1,5 @@
+NGINX_PREFIX="/usr/local/nginx"
+
 echo "📁 Creating additional config directories..."
 sudo mkdir -p ${NGINX_PREFIX}/conf/stream.d
 sudo mkdir -p ${NGINX_PREFIX}/conf/sites-available/locations
