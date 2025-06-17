@@ -1,8 +1,10 @@
 package dependency_injector
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"time"
 	"webhost-go/webhost-go/internal/controller"
 	"webhost-go/webhost-go/internal/db_driver"
@@ -11,7 +13,7 @@ import (
 	"webhost-go/webhost-go/internal/services/user_service"
 	"webhost-go/webhost-go/internal/services/user_service/authn/token"
 	"webhost-go/webhost-go/internal/services/user_service/authn/utils"
-	"webhost-go/webhost-go/pkg/libvirt"
+	"webhost-go/webhost-go/pkg/aws"
 )
 
 type AppInitializer struct {
@@ -43,12 +45,16 @@ func (ai *AppInitializer) InitApp() (*HandlerRegistry, error) {
 	authMw := middleware.NewAuthMiddleware(tokens)
 
 	hostingRepo := db_driver.NewHostingRepository(db)
-	libvirtManager, err := libvirt.NewLibvirtManager()
+	ctx := context.Background()
+
+	// AWS Config 로드 (환경변수 또는 IAM 역할 기반)
+	cfg, err := config.LoadDefaultConfig(ctx)
+	ec2Manager := aws.NewEC2Manager(cfg)
 	if err != nil {
 		panic(err)
 	}
 
-	hostingSvc := hosting_service.NewService(hostingRepo, "localhost:5003", libvirtManager)
+	hostingSvc := hosting_service.NewService(hostingRepo, "172.31.32.87:5003", ec2Manager)
 	hostingHandler := controller.NewHostingHandler(hostingSvc, userSvc)
 	return &HandlerRegistry{
 		UserHandler:    userHandler,

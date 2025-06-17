@@ -1,14 +1,10 @@
 package hosting_service
 
-import (
-	"webhost-go/webhost-go/pkg/libvirt"
-)
-
 type Service interface {
 	CreateHosting(userID int64, email string) (*Hosting, error)
-	DeleteVM(name string) error
-	GetVMStatus(name string) (*VMStatus, error)
-	GetVMDetail(name string) (*Hosting, *libvirt.DomainInfo, error)
-	StartVM(name string) error
-	StopVM(name string) error
+	DeleteVM(email string) error
+	GetVMStatus(email string) (*VMStatus, error)
+	GetVMDetail(email string) (*Hosting, *EC2InstanceInfo, error)
+	StartVM(email string) error
+	StopVM(email string) error
 }

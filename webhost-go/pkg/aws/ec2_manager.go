@@ -12,18 +12,18 @@ import (
 )
 
 type EC2Manager struct {
-	client *ec2.Client
+	Client *ec2.Client
 }
 
 func NewEC2Manager(cfg aws.Config) *EC2Manager {
 	return &EC2Manager{
-		client: ec2.NewFromConfig(cfg),
+		Client: ec2.NewFromConfig(cfg),
 	}
 }
 
 func (m *EC2Manager) StartUbuntuVM(ctx context.Context, name string, userID int64) (instanceID string, publicIP string, err error) {
 	// 1. 최신 Ubuntu AMI 검색
-	amiID, err := FindLatestUbuntuAmi(ctx, m.client)
+	amiID, err := FindLatestUbuntuAmi(ctx, m.Client)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to find Ubuntu AMI: %w", err)
 	}
@@ -45,7 +45,7 @@ func (m *EC2Manager) StartUbuntuVM(ctx context.Context, name string, userID int6
 		},
 	}
 
-	runOut, err := m.client.RunInstances(ctx, input)
+	runOut, err := m.Client.RunInstances(ctx, input)
 	if err != nil || len(runOut.Instances) == 0 {
 		return "", "", fmt.Errorf("EC2 run failed: %w", err)
 	}
@@ -56,7 +56,7 @@ func (m *EC2Manager) StartUbuntuVM(ctx context.Context, name string, userID int6
 	// 3. 퍼블릭 IP 확보 (잠시 대기 후 조회)
 	time.Sleep(10 * time.Second)
 
-	desc, err := m.client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+	desc, err := m.Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	})
 	if err != nil {
@@ -105,10 +105,10 @@ func FindLatestUbuntuAmi(ctx context.Context, ec2Client *ec2.Client) (string, er
 	return *output.Images[0].ImageId, nil
 }
 
-func (m *EC2Manager) StartUbuntuVMWithOwner(ctx context.Context, name string, username string) (instanceID, publicIP string, err error) {
-	amiID, err := FindLatestUbuntuAmi(ctx, m.client)
+func (m *EC2Manager) StartUbuntuVMWithOwner(ctx context.Context, name string, username string) (instanceID, publicIP string, priavteIP string, err error) {
+	amiID, err := FindLatestUbuntuAmi(ctx, m.Client)
 	if err != nil {
-		return "", "", fmt.Errorf("AMI 검색 실패: %w", err)
+		return "", "", "", fmt.Errorf("AMI 검색 실패: %w", err)
 	}
 
 	input := &ec2.RunInstancesInput{
@@ -127,27 +127,28 @@ func (m *EC2Manager) StartUbuntuVMWithOwner(ctx context.Context, name string, us
 			},
 		},
 	}
-	out, err := m.client.RunInstances(ctx, input)
+	out, err := m.Client.RunInstances(ctx, input)
 	if err != nil {
-		return "", "", fmt.Errorf("EC2 생성 실패: %w", err)
+		return "", "", "", fmt.Errorf("EC2 생성 실패: %w", err)
 	}
 
 	instanceID = *out.Instances[0].InstanceId
 
 	// 퍼블릭 IP 확보
 	time.Sleep(10 * time.Second)
-	desc, err := m.client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+	desc, err := m.Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("IP 조회 실패: %w", err)
+		return "", "", "", fmt.Errorf("IP 조회 실패: %w", err)
 	}
 	publicIP = aws.ToString(desc.Reservations[0].Instances[0].PublicIpAddress)
-	return instanceID, publicIP, nil
+	privateIP := aws.ToString(desc.Reservations[0].Instances[0].PrivateIpAddress)
+	return instanceID, publicIP, privateIP, nil
 }
 
 func (m *EC2Manager) findInstanceByUser(ctx context.Context, username string) (*ec2types.Instance, error) {
-	out, err := m.client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+	out, err := m.Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		Filters: []ec2types.Filter{
 			{
 				Name:   aws.String("tag:User"),
@@ -193,7 +194,7 @@ func (m *EC2Manager) StopVMByUser(ctx context.Context, username string) error {
 		return err
 	}
 
-	_, err = m.client.StopInstances(ctx, &ec2.StopInstancesInput{
+	_, err = m.Client.StopInstances(ctx, &ec2.StopInstancesInput{
 		InstanceIds: []string{aws.ToString(inst.InstanceId)},
 	})
 	if err != nil {
@@ -213,7 +214,7 @@ func (m *EC2Manager) StartVMByUser(ctx context.Context, username string) error {
 		return err
 	}
 
-	_, err = m.client.StartInstances(ctx, &ec2.StartInstancesInput{
+	_, err = m.Client.StartInstances(ctx, &ec2.StartInstancesInput{
 		InstanceIds: []string{aws.ToString(inst.InstanceId)},
 	})
 	if err != nil {
@@ -254,7 +255,7 @@ func (m *EC2Manager) TerminateVMByUser(ctx context.Context, username string) err
 	}
 
 	// 3. 안전 확인 후 종료
-	_, err = m.client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
+	_, err = m.Client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
 		InstanceIds: []string{instanceID},
 	})
 	if err != nil {
@@ -262,6 +263,36 @@ func (m *EC2Manager) TerminateVMByUser(ctx context.Context, username string) err
 	}
 
 	return nil
+}
+
+func (m *EC2Manager) FindInstanceByUser(ctx context.Context, username string) (*ec2types.Instance, error) {
+	out, err := m.Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("tag:User"),
+				Values: []string{username},
+			},
+			{
+				Name:   aws.String("tag:Role"),
+				Values: []string{"webhosting"},
+			},
+			{
+				Name:   aws.String("instance-state-name"),
+				Values: []string{"pending", "running", "stopped"},
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("DescribeInstances 실패: %w", err)
+	}
+
+	for _, r := range out.Reservations {
+		for _, inst := range r.Instances {
+			return &inst, nil
+		}
+	}
+
+	return nil, fmt.Errorf("사용자 %s의 인스턴스를 찾을 수 없습니다", username)
 }
 
 func isWebhostingAndNotProtected(inst *ec2types.Instance) error {

@@ -2,23 +2,25 @@ package hosting_service
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	awscli "github.com/aws/aws-sdk-go-v2/aws"
 	"io"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 	"webhost-go/webhost-go/cmd/nginx-agent/nginx"
-	"webhost-go/webhost-go/pkg/libvirt"
+	"webhost-go/webhost-go/pkg/aws"
 )
 
 type HostingService struct {
 	repo      HostingRepository
 	agentAddr string
-	Libvirt   *libvirt.LibvirtManager
+	EC2       *aws.EC2Manager // 기존 libvirt 대신 EC2Manager 사용
 }
 
 type VMRequest struct {
@@ -44,18 +46,18 @@ type VMStatus struct {
 	Active bool
 }
 
-func NewService(repo HostingRepository, agentAddr string, libvirt *libvirt.LibvirtManager) *HostingService {
+func NewService(repo HostingRepository, agentAddr string, ec2mgr *aws.EC2Manager) *HostingService {
 	return &HostingService{
 		repo:      repo,
 		agentAddr: agentAddr,
-		Libvirt:   libvirt,
+		EC2:       ec2mgr,
 	}
 }
 
 // CreateHosting - 새로운 VM을 생성하고 Hosting 엔트리를 DB에 등록
 func (s *HostingService) CreateHosting(userID int64, email string) (*Hosting, error) {
 	username := removeDomain(email)
-	hostname := removeDomain(email) + "_VM"
+	hostname := username + "_VM"
 
 	existing, err := s.repo.FindActiveByUserID(userID)
 	if err == nil && existing != nil {
@@ -65,50 +67,35 @@ func (s *HostingService) CreateHosting(userID int64, email string) (*Hosting, er
 		return nil, fmt.Errorf("VM 존재 여부 확인 실패: %w", err)
 	}
 
-	usedIPsStr, _ := s.repo.GetUsedIPs()
-	var used []net.IP
-	for _, ipStr := range usedIPsStr {
-		if ip := net.ParseIP(ipStr); ip != nil {
-			used = append(used, ip)
-		}
-	}
-
-	// 사용 가능한 IP 및 포트 확보
-	ipList, err := s.Libvirt.GetUsableIPs(used)
-	if err != nil || len(ipList) == 0 {
-		return nil, fmt.Errorf("사용 가능한 IP 없음: %w", err)
-	}
-	ip := ipList[0]
-
 	port, err := s.repo.GetAvailablePort(20000, 30000)
 	if err != nil {
 		return nil, fmt.Errorf("사용 가능한 포트 없음: %w", err)
 	}
 
-	// VM 생성
-	if err := s.Libvirt.StartUbuntuVMWithStaticIP(hostname, ip); err != nil {
-		return nil, fmt.Errorf("VM 생성 실패: %w", err)
+	ctx := context.Background()
+	instanceID, _, privateIP, err := s.EC2.StartUbuntuVMWithOwner(ctx, hostname, username)
+	if err != nil {
+		return nil, fmt.Errorf("EC2 인스턴스 생성 실패: %w", err)
 	}
 
 	// nginx-agent 등록
 	agent := nginx.AgentInfo{
 		Username: username,
 		Hostname: hostname,
-		VMIP:     ip.String(),
+		VMIP:     privateIP,
 		SSHPort:  port,
 	}
 	if err := RegisterWithNginxAgent(s.agentAddr, agent); err != nil {
 		return nil, err
 	}
 
-	// DB에 기록
 	h := &Hosting{
 		UserID:    userID,
 		VMName:    hostname,
-		IPAddress: ip.String(),
+		IPAddress: privateIP,
 		SSHPort:   port,
 		ProxyPath: "/" + username,
-		DiskPath:  fmt.Sprintf("/var/lib/libvirt/images/instances/%s/disk.qcow2", hostname),
+		DiskPath:  instanceID, // AWS에서는 디스크 경로 대신 인스턴스 ID로 추적
 		Status:    "running",
 		CreatedAt: time.Now(),
 	}
@@ -120,24 +107,26 @@ func (s *HostingService) CreateHosting(userID int64, email string) (*Hosting, er
 }
 
 func (s *HostingService) DeleteVM(email string) error {
-	hostname := removeDomain(email) + "_VM"
-	// 1. DB에서 VM 정보 조회
-	hosting, err := s.repo.FindByVMName(hostname)
+	username := removeDomain(email)
+	hostname := username + "_VM"
+
+	// 1. DB 조회
+	_, err := s.repo.FindByVMName(hostname)
 	if err != nil {
 		return fmt.Errorf("VM 정보 조회 실패: %w", err)
 	}
 
-	// 2. libvirt에서 VM 삭제
-	if err := s.Libvirt.DeleteDomain(hostname, true); err != nil {
-		return fmt.Errorf("libvirt 도메인 삭제 실패: %w", err)
+	// 2. EC2 종료
+	if err := s.EC2.TerminateVMByUser(context.Background(), username); err != nil {
+		return fmt.Errorf("EC2 인스턴스 종료 실패: %w", err)
 	}
 
-	// 3. nginx-agent에 설정 제거 요청
-	if err := RemoveFromNginxAgent(s.agentAddr, hosting.VMName); err != nil {
+	// 3. nginx-agent 제거
+	if err := RemoveFromNginxAgent(s.agentAddr, hostname); err != nil {
 		return fmt.Errorf("nginx-agent 설정 제거 실패: %w", err)
 	}
 
-	// 4. DB에서 상태를 'deleted'로 업데이트
+	// 4. DB 상태 업데이트
 	if err := s.repo.UpdateStatus(hostname, "deleted"); err != nil {
 		return fmt.Errorf("DB 상태 업데이트 실패: %w", err)
 	}
@@ -146,59 +135,78 @@ func (s *HostingService) DeleteVM(email string) error {
 }
 
 func (s *HostingService) GetVMStatus(email string) (*VMStatus, error) {
-	hostname := removeDomain(email) + "_VM"
-	active, err := s.Libvirt.DomainIsActive(hostname)
+	username := removeDomain(email)
+	active, err := s.EC2.GetVMStatusByUser(context.Background(), username)
 	if err != nil {
 		return nil, fmt.Errorf("VM 상태 조회 실패: %w", err)
 	}
-
-	Status := &VMStatus{
-		VMName: hostname,
-		Active: active,
-	}
-
-	return Status, nil
+	return &VMStatus{
+		VMName: username + "_VM",
+		Active: active == "running",
+	}, nil
 }
 
-func (s *HostingService) GetVMDetail(email string) (*Hosting, *libvirt.DomainInfo, error) {
+type EC2InstanceInfo struct {
+	InstanceID   string
+	State        string
+	InstanceType string
+	PublicIP     string
+	LaunchTime   time.Time
+}
+
+func (s *HostingService) GetVMDetail(email string) (*Hosting, *EC2InstanceInfo, error) {
 	hostname := removeDomain(email) + "_VM"
-	// 1. DB에서 Hosting 정보 조회
 	h, err := s.repo.FindByVMName(hostname)
 	if err != nil {
 		return nil, nil, fmt.Errorf("DB 조회 실패: %w", err)
 	}
 
-	info, err := s.Libvirt.GetDomainInfoByName(hostname)
+	username := removeDomain(email)
+	ctx := context.Background()
+
+	inst, err := s.EC2.FindInstanceByUser(ctx, username)
 	if err != nil {
-		return nil, nil, fmt.Errorf("도메인 정보 조회 실패: %w", err)
+		return nil, nil, fmt.Errorf("EC2 인스턴스 조회 실패: %w", err)
+	}
+
+	info := &EC2InstanceInfo{
+		InstanceID:   awscli.ToString(inst.InstanceId),
+		State:        string(inst.State.Name),
+		InstanceType: string(inst.InstanceType),
+		PublicIP:     awscli.ToString(inst.PublicIpAddress),
+		LaunchTime:   awscli.ToTime(inst.LaunchTime),
 	}
 
 	return h, info, nil
 }
 
 func (s *HostingService) StartVM(email string) error {
-	hostname := removeDomain(email) + "_VM"
-	// 1. Resume
-	if err := s.Libvirt.Resume(hostname); err != nil {
-		return err
+	username := removeDomain(email)
+
+	if err := s.EC2.StartVMByUser(context.Background(), username); err != nil {
+		return fmt.Errorf("EC2 인스턴스 시작 실패: %w", err)
 	}
-	// 2. DB 상태 업데이트
+
+	hostname := username + "_VM"
 	if err := s.repo.UpdateStatus(hostname, "running"); err != nil {
-		return fmt.Errorf("상태 갱신 실패: %w", err)
+		return fmt.Errorf("DB 상태 업데이트 실패: %w", err)
 	}
+
 	return nil
 }
 
 func (s *HostingService) StopVM(email string) error {
-	hostname := removeDomain(email) + "_VM"
-	// 1. Shutdown
-	if err := s.Libvirt.Shutdown(hostname); err != nil {
-		return err
+	username := removeDomain(email)
+
+	if err := s.EC2.StopVMByUser(context.Background(), username); err != nil {
+		return fmt.Errorf("EC2 인스턴스 중지 실패: %w", err)
 	}
-	// 2. DB 상태 업데이트
+
+	hostname := username + "_VM"
 	if err := s.repo.UpdateStatus(hostname, "stopped"); err != nil {
-		return fmt.Errorf("상태 갱신 실패: %w", err)
+		return fmt.Errorf("DB 상태 업데이트 실패: %w", err)
 	}
+
 	return nil
 }
 
